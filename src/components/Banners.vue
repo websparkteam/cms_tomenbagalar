@@ -1,0 +1,345 @@
+<template>
+    <div class="header-item">
+        <div class="item-col">
+            <div class="row" :style="{width: '32px', display: 'flex', alignItems: 'center'}"><i class="fi fi-rs-bell"></i></div>
+            <div class="row" v-for="(i, ind) in rows" :key="ind" :style="{width: i.width}">{{i.name}}</div>
+        </div>
+    </div>
+    <div class="convs-list" v-if="ready" @scroll="listScroll" ref="list">
+        <div class="item">
+            <div class="conv-title" @click="changeMode('NewBanner', {id: 0})" style="width: 100%; display: flex; align-items: center;"><i class="fi-sr-add" style="margin-right: 10px;"></i>Добавить новый баннер</div>
+        </div>
+        <div :class="{'item': true, 'selected': activeMember==ind}"
+            v-for="(i, ind) in convs" :key="ind"
+            @click="openBanner(i.id)"
+        >
+            <div class="line" :style="{background: 'var(--blue)'}"></div>
+            <div class="item-row">
+                <div class="watched-circle" :style="{opacity: getIfWatched(i) ? 0 : 0.5}"></div>
+                <div class="conv-title" v-for="(j, jind) in rows" :key="jind" :style="{width: j.width}" v-html="j.return(i)"></div>
+            </div>
+        </div>
+        <div class="item itemloading" v-show="loading"></div>
+        <div class="lazyload" v-if="!loading" @click="lazyLoad">Показать больше...</div>
+    </div>
+</template>
+
+<script>
+import { inject } from '@vue/runtime-core';
+import { mask } from 'maska';
+import moment from 'moment';
+export default {
+    data() {
+        return {
+            ready: false,
+            serverQuery: Function,
+            changeMode: Function,
+            convOp: Function,
+            orderOp: Function,
+            convs: [],
+            global: {},
+            mask,
+            activeMember: -1,
+            loading: true,
+            offset: 0,
+            loadingOffset: false,
+            windowWidth: window.innerWidth,
+            filter: {
+                fullname: '',
+                phone: ''
+            },
+            rows: [
+                {
+                    width: '250px',
+                    name: 'Название баннера',
+                    return: (i) => `<strong>${i.name}</strong>`
+                },
+                {
+                    width: '250px',
+                    name: 'Описание баннера',
+                    return: (i) => `${i.desc}`
+                },
+                {
+                    width: '250px',
+                    name: 'Тип баннера',
+                    return: (i) => `${this.parseBannerType(i.type)}`
+                },
+            ],
+            moment
+        }
+    },
+    mounted() {
+        this.serverQuery = inject('serverQuery');
+        this.changeMode = inject('changeMode');
+        this.global = inject('global');
+        this.orderOp = inject('orders');
+
+        this.ready = true;
+
+        this.sync();
+
+    },
+    methods: {
+        findLastIndex(array, searchKey, searchValue) {
+            let index = array.slice().reverse().findIndex(x => x[searchKey] === searchValue),
+                count = array.length - 1,
+                finalIndex = index >= 0 ? count - index : index;
+            return finalIndex;
+        },
+        async sync(reset) {
+            return new Promise((resolve) => {
+                (async () => {
+                    if (reset) {
+                        this.convs.splice(0, this.convs.length);
+                        this.offset = 0;
+                        this.loadingOffset = false;
+                    }
+                    this.loading = true;
+                    let response = await this.serverQuery('admin', 'getAllBanners', {offset: this.offset});
+                    this.loading = false;
+                    console.log(response);
+                    if (response.status) {
+                        let data = response.data.message;
+                        if (data.length == 0) {
+                            this.loadingOffset = true;
+                        }
+                        for(let i in data) {
+                            let memb = data[i];
+                            this.convs.push(memb);
+                        }
+                    }
+                    resolve(response.data.message.length);
+                })();
+            });
+        },
+        openBanner(id) {
+            this.changeMode('NewBanner', {id})
+        },
+        getIfWatched(i) {
+            let list = JSON.parse(localStorage.getItem('rauza_watched_convs'));
+            let ind = list.findIndex(e => e.id == i.id);
+            if (ind == -1) return false;
+            else {
+                if (list[ind].updatedAt == i.updatedAt) return true;
+                else {
+                    list.splice(ind, 1);
+                    localStorage.setItem('rauza_watched_convs', JSON.stringify(list));
+                    return false;
+                }
+            }
+        },
+        listScroll(e) {
+            let scrollBottom = e.target.scrollTop+e.target.offsetHeight;
+            if(scrollBottom > (e.target.scrollHeight-10)) {
+                this.lazyLoad();
+            }
+        },
+        async lazyLoad() {
+            if (this.loadingOffset) return;
+            this.loadingOffset = true;
+            this.offset += 50;
+            let res = await this.sync();
+            if (res > 0) this.loadingOffset = false;
+            console.log('Updated!')
+        },
+        parseBannerType(type) {
+            switch(parseInt(type)) {
+                case 0: return 'Центральный';
+                case 1: return 'Верхний боковой';
+                case 2: return 'Нижний боковой';
+            }
+        }
+    },
+}
+</script>
+
+<style scoped>
+    .convs-list {
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+        height: calc(100% - 55px);
+        overflow-y: scroll;
+        background-color: var(--el-bg-color-overlay);
+        color: var(--el-text-color-primary);
+        border-radius: 5px;
+        border-top-right-radius: 0;
+        border-top-left-radius: 0;
+        padding: 10px 0;
+    }
+    .header-item {
+        width: 100%;
+        height: max-content;
+        padding: 15px 20px !important;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        box-sizing: border-box;
+        position: relative;
+        background-color: var(--el-bg-color-overlay);
+        color: var(--el-text-color-primary);
+        background-color: var(--el-bg-color-overlay);
+        border-top-right-radius: 5px;
+        border-top-left-radius: 5px;
+        box-shadow: var(--el-box-shadow-lighter);
+    }
+    .boxrow {
+        height: 100%;
+        border-radius: 5px;
+        border: 1px solid var(--el-border-color-light);
+        box-shadow: var(--el-box-shadow-light);
+        overflow: hidden;
+    }
+    .header-item .line {
+        width: calc(100% - 40px);
+        height: 1px;
+        background-color: var(--gray);
+        position: absolute;
+        bottom: 0;
+        left: 50%;
+        transform: translate(-50%);
+    }
+    .conv-title:nth-child(2){
+        margin-left: 0;
+    }
+    .convs-list .item {
+        width: 100%;
+        height: max-content;
+        padding: 10px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        align-content: center;
+        box-sizing: border-box;
+        cursor: pointer;
+        animation: newMessage 1s;
+        overflow: visible;
+        position: relative;
+    }
+    .item:hover {
+        background-color: var(--el-color-info-light-8);
+    }
+    .item.selected {
+        background-color: rgb(250, 250, 250);
+    }
+    .item.item-report {
+        background-color: rgb(255, 239, 239);
+        animation: newMessageRed 1s;
+    }
+    .item .line {
+        width: 5px;
+        height: 100%;
+        background-color: transparent;
+        position: absolute;
+        left: 0;
+        top: 0;
+        opacity: 0;
+    }
+    .item.selected .line {
+        opacity: 1;
+    }
+    .watched-circle {
+        width: 12px;
+        height: 12px;
+        min-width: 12px;
+        min-height: 12px;
+        background-color: var(--blue);
+        opacity: 0.5;
+        border-radius: 50%;
+        margin-right: 20px;
+    }
+    .conv-report {
+        width: 12px;
+        height: 12px;
+        min-height: 12px;
+        margin-right: 20px;
+        color: var(--red);
+    }
+    .itemloading {
+        width: 100vw !important;
+        height: 254px !important;
+        flex-shrink: 0;
+        border: 1px solid rgb(166, 57, 254, 0) !important;
+        background: linear-gradient(270deg, #cccccc, #e9e9e9, #cccccc);
+        background-size: 400% 400%;
+
+        animation: flicker-loading 2s infinite !important;
+    }
+    .item-data {
+        width: 100%;
+        margin-top: 10px;
+    }
+    .item-data i {
+        margin-right: 10px;
+    }
+    .item-data span {
+        font-weight: 500;
+    }
+    .item-data .item-row {
+        margin-bottom: 10px;
+    }
+    .item-row {
+        width: 100%;
+        align-items: center;
+        display: flex;
+        flex-direction: row;
+    }
+    .item-row span {
+        letter-spacing: 1px;
+    }
+    .lazyload {
+        width: calc(100% - 40px);
+        border-radius: 10px;
+        background-color: rgba(166, 57, 254, 0.2);
+        color: rgb(166, 57, 254);
+        font-weight: bold;
+        padding: 5px 10px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        margin: 20px 0;
+    }
+    .lazyload:hover {
+        background-color: rgba(166, 57, 254, 0.1);
+    }
+    .ripple {
+        position: absolute;
+        background-color: rgb(150, 150, 150);
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        border-radius: 50%;
+        animation: animate .9s ease;
+        cursor: pointer;
+    }
+    .conv-title {
+        margin-left: 20px;
+        font-weight: 500;
+    }
+    .filters {
+        margin-bottom: 10px;
+    }
+    .filters input {
+        margin-right: 10px;
+    }
+    @keyframes animate {
+        0% {
+            width: 0px;
+            height: 0px;
+            opacity: 0.4;
+        }
+        100% {
+            width: 300px;
+            height: 300px;
+            opacity: 0;
+        }
+    }
+    @media screen and (max-width: 768px){
+        .header-item {
+            width: max-content;
+        }
+        .convs-list {
+            width: max-content;
+        }
+    }
+</style>
